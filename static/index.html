@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DEW · IoT Hub</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: { 400: '#38bdf8', 500: '#0ea5e9', 600: '#0284c7', 700: '#0369a1' },
+            surface: { 800: '#1e293b', 900: '#0f172a', 950: '#020617' }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+    .card { transition: transform .15s ease, box-shadow .15s ease; }
+    .card:hover { transform: translateY(-2px); }
+    .pulse-online { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.5); animation: pulse-green 2s infinite; }
+    @keyframes pulse-green {
+      0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.5); }
+      70% { box-shadow: 0 0 0 8px rgba(34, 197, 94, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+    }
+    .toast { animation: slideIn .3s ease; }
+    @keyframes slideIn { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+  </style>
+</head>
+<body class="bg-surface-950 text-slate-100 min-h-screen">
+  <!-- Header -->
+  <header class="border-b border-slate-800 bg-surface-900/80 backdrop-blur sticky top-0 z-40">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-brand-400 to-brand-700 flex items-center justify-center font-bold text-white text-sm shadow-lg shadow-brand-500/20">D</div>
+        <div>
+          <h1 class="text-lg font-semibold tracking-tight">DEW</h1>
+          <p class="text-xs text-slate-400">Self-hosted IoT Hub</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-4 text-sm">
+        <div id="conn-status" class="flex items-center gap-2 text-slate-400">
+          <span class="w-2 h-2 rounded-full bg-slate-500" id="conn-dot"></span>
+          <span id="conn-text">Connecting…</span>
+        </div>
+        <div id="stats" class="hidden sm:flex gap-4 text-slate-400">
+          <span><span id="stat-devices" class="text-white font-medium">0</span> devices</span>
+          <span><span id="stat-online" class="text-emerald-400 font-medium">0</span> online</span>
+        </div>
+        <button onclick="openAddModal()" class="bg-brand-600 hover:bg-brand-500 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition">
+          + Add Device
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-4 py-6">
+    <!-- Device grid -->
+    <div id="device-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+      <!-- cards injected here -->
+    </div>
+    <div id="empty-state" class="hidden text-center py-20 text-slate-500">
+      <p class="text-lg">No devices yet</p>
+      <p class="text-sm mt-1">Add a device or connect MQTT sensors</p>
+    </div>
+  </main>
+
+  <!-- Add Device Modal -->
+  <div id="modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+    <div class="bg-surface-900 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl">
+      <div class="px-6 py-4 border-b border-slate-800 flex justify-between items-center">
+        <h2 class="font-semibold text-lg">Add Device</h2>
+        <button onclick="closeModal()" class="text-slate-400 hover:text-white text-xl leading-none">&times;</button>
+      </div>
+      <form onsubmit="addDevice(event)" class="p-6 space-y-4">
+        <div>
+          <label class="block text-sm text-slate-400 mb-1">Name</label>
+          <input id="f-name" required class="w-full bg-surface-800 border border-slate-700 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500" placeholder="Living Room Light" />
+        </div>
+        <div>
+          <label class="block text-sm text-slate-400 mb-1">Type</label>
+          <select id="f-type" class="w-full bg-surface-800 border border-slate-700 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500">
+            <option value="light">Light</option>
+            <option value="switch">Switch</option>
+            <option value="sensor">Sensor</option>
+            <option value="thermostat">Thermostat</option>
+            <option value="generic">Generic</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm text-slate-400 mb-1">MQTT Topic Base</label>
+          <input id="f-topic" required class="w-full bg-surface-800 border border-slate-700 rounded-lg px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" placeholder="home/living/light1" />
+          <p class="text-xs text-slate-500 mt-1">Device publishes to <code class="text-brand-400">{base}/state</code> and <code class="text-brand-400">{base}/telemetry/&lt;key&gt;</code></p>
+        </div>
+        <div class="flex gap-3 pt-2">
+          <button type="button" onclick="closeModal()" class="flex-1 px-4 py-2 rounded-lg border border-slate-700 hover:bg-slate-800 transition">Cancel</button>
+          <button type="submit" class="flex-1 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 font-medium transition">Create</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast container -->
+  <div id="toasts" class="fixed bottom-4 right-4 z-50 space-y-2"></div>
+
+  <script>
+    let devices = [];
+    let ws;
+
+    const typeIcons = {
+      light: '💡', switch: '🔌', sensor: '📡', thermostat: '🌡️', generic: '📦'
+    };
+
+    function connect() {
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      ws = new WebSocket(`${proto}://${location.host}/ws`);
+      ws.onopen = () => {
+        setConn(true);
+      };
+      ws.onclose = () => {
+        setConn(false);
+        setTimeout(connect, 2000);
+      };
+      ws.onerror = () => ws.close();
+      ws.onmessage = (ev) => {
+        try {
+          const msg = JSON.parse(ev.data);
+          handleEvent(msg);
+        } catch (e) {}
+      };
+    }
+
+    function setConn(ok) {
+      const dot = document.getElementById('conn-dot');
+      const text = document.getElementById('conn-text');
+      if (ok) {
+        dot.className = 'w-2 h-2 rounded-full bg-emerald-400 pulse-online';
+        text.textContent = 'Live';
+        text.className = 'text-emerald-400';
+      } else {
+        dot.className = 'w-2 h-2 rounded-full bg-rose-500';
+        text.textContent = 'Reconnecting…';
+        text.className = 'text-rose-400';
+      }
+    }
+
+    function handleEvent(msg) {
+      if (msg.event === 'snapshot') {
+        devices = msg.data.devices || [];
+        render();
+      } else if (msg.event === 'device_update') {
+        const d = msg.data;
+        const idx = devices.findIndex(x => x.id === d.id);
+        if (idx >= 0) devices[idx] = d;
+        else devices.push(d);
+        render();
+      } else if (msg.event === 'status') {
+        toast(msg.data.message || 'Status update');
+      }
+    }
+
+    function render() {
+      const grid = document.getElementById('device-grid');
+      const empty = document.getElementById('empty-state');
+      document.getElementById('stat-devices').textContent = devices.length;
+      document.getElementById('stat-online').textContent = devices.filter(d => d.online).length;
+
+      if (!devices.length) {
+        grid.innerHTML = '';
+        empty.classList.remove('hidden');
+        return;
+      }
+      empty.classList.add('hidden');
+
+      grid.innerHTML = devices.map(d => {
+        let state = {};
+        try { state = JSON.parse(d.state || '{}'); } catch(e) {}
+        const isOn = state.on === true || state.power === 'on';
+        const icon = typeIcons[d.device_type] || typeIcons.generic;
+        const online = !!d.online;
+
+        let controls = '';
+        if (d.device_type === 'light' || d.device_type === 'switch') {
+          controls = `
+            <div class="flex gap-2 mt-3">
+              <button onclick="cmd('${d.id}','on')" class="flex-1 py-1.5 rounded-lg text-sm font-medium transition ${isOn ? 'bg-emerald-600 text-white' : 'bg-slate-700 hover:bg-slate-600'}">On</button>
+              <button onclick="cmd('${d.id}','off')" class="flex-1 py-1.5 rounded-lg text-sm font-medium transition ${!isOn ? 'bg-slate-600 text-white' : 'bg-slate-700 hover:bg-slate-600'}">Off</button>
+              <button onclick="cmd('${d.id}','toggle')" class="px-3 py-1.5 rounded-lg text-sm bg-slate-700 hover:bg-slate-600 transition" title="Toggle">⇄</button>
+            </div>`;
+        } else if (d.device_type === 'sensor') {
+          const keys = Object.keys(state).filter(k => typeof state[k] === 'number').slice(0, 4);
+          controls = keys.length
+            ? `<div class="mt-3 grid grid-cols-2 gap-2">${keys.map(k => `
+                <div class="bg-surface-950 rounded-lg px-2 py-1.5">
+                  <div class="text-[10px] uppercase tracking-wider text-slate-500">${k}</div>
+                  <div class="text-sm font-semibold text-brand-400">${state[k]}</div>
+                </div>`).join('')}</div>`
+            : `<p class="text-xs text-slate-500 mt-3">Waiting for telemetry…</p>`;
+        } else {
+          controls = `<pre class="mt-3 text-xs text-slate-400 bg-surface-950 rounded-lg p-2 overflow-x-auto max-h-20">${JSON.stringify(state, null, 0)}</pre>`;
+        }
+
+        return `
+          <div class="card bg-surface-900 border border-slate-800 rounded-xl p-4 shadow-lg">
+            <div class="flex items-start justify-between gap-2">
+              <div class="flex items-center gap-2 min-w-0">
+                <span class="text-2xl">${icon}</span>
+                <div class="min-w-0">
+                  <h3 class="font-medium truncate">${esc(d.name)}</h3>
+                  <p class="text-xs text-slate-500 truncate font-mono">${esc(d.topic_base)}</p>
+                </div>
+              </div>
+              <div class="flex items-center gap-2 shrink-0">
+                <span class="w-2 h-2 rounded-full ${online ? 'bg-emerald-400' : 'bg-slate-600'}" title="${online ? 'Online' : 'Offline'}"></span>
+                <button onclick="removeDevice('${d.id}')" class="text-slate-600 hover:text-rose-400 text-xs transition" title="Delete">✕</button>
+              </div>
+            </div>
+            ${controls}
+          </div>`;
+      }).join('');
+    }
+
+    async function cmd(id, command) {
+      try {
+        const res = await fetch(`/api/devices/${id}/command`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ command })
+        });
+        if (!res.ok) throw new Error(await res.text());
+        toast(`${command} → sent`);
+      } catch (e) {
+        toast('Command failed: ' + e.message, true);
+      }
+    }
+
+    async function addDevice(e) {
+      e.preventDefault();
+      const body = {
+        name: document.getElementById('f-name').value.trim(),
+        device_type: document.getElementById('f-type').value,
+        topic_base: document.getElementById('f-topic').value.trim(),
+      };
+      try {
+        const res = await fetch('/api/devices', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        if (!res.ok) throw new Error(await res.text());
+        closeModal();
+        toast('Device created');
+        e.target.reset();
+      } catch (err) {
+        toast('Failed: ' + err.message, true);
+      }
+    }
+
+    async function removeDevice(id) {
+      if (!confirm('Delete this device?')) return;
+      const res = await fetch(`/api/devices/${id}`, { method: 'DELETE' });
+      if (res.ok || res.status === 204) {
+        devices = devices.filter(d => d.id !== id);
+        render();
+        toast('Device deleted');
+      }
+    }
+
+    function openAddModal() {
+      document.getElementById('modal').classList.remove('hidden');
+    }
+    function closeModal() {
+      document.getElementById('modal').classList.add('hidden');
+    }
+
+    function toast(msg, isError = false) {
+      const el = document.createElement('div');
+      el.className = `toast px-4 py-2 rounded-lg text-sm shadow-lg ${isError ? 'bg-rose-600' : 'bg-slate-700'} text-white`;
+      el.textContent = msg;
+      document.getElementById('toasts').appendChild(el);
+      setTimeout(() => el.remove(), 3000);
+    }
+
+    function esc(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // Initial load via REST (in case WS is slow)
+    fetch('/api/devices').then(r => r.json()).then(d => { devices = d; render(); }).catch(() => {});
+    fetch('/api/stats').then(r => r.json()).then(s => {
+      document.getElementById('stat-devices').textContent = s.devices ?? 0;
+      document.getElementById('stat-online').textContent = s.online ?? 0;
+    }).catch(() => {});
+
+    connect();
+  </script>
+</body>
+</html>
